@@ -12,6 +12,7 @@ import archinfo
 
 from angr import Project, load_shellcode, types
 from angr.calling_conventions import (
+    SimCCAArch64,
     SimCCMicrosoftAMD64,
     SimCCMicrosoftCdecl,
     SimCCMicrosoftFastcall,
@@ -30,6 +31,7 @@ from angr.calling_conventions import (
     SimTypeInt,
     default_cc,
 )
+from angr.errors import AngrTypeError
 from angr.sim_type import (
     SimCppClass,
     SimStruct,
@@ -38,6 +40,7 @@ from angr.sim_type import (
     SimTypeChar,
     SimTypeDouble,
     SimTypeLongLong,
+    SimTypeNum,
     SimTypePointer,
     SimTypeRef,
     SimUnion,
@@ -389,6 +392,19 @@ class TestCallingConvention(TestCase):
             [SimRegArg("edx", 4)],
             [SimStackArg(0x4, 4)],
         ]
+
+    def test_return_too_wide_for_one_register_names_the_convention(self):
+        # A return type wider than RETURN_VAL used to hit `assert self.OVERFLOW_RETURN_VAL is not None`,
+        # so a convention that declares no second return register failed with an AssertionError carrying
+        # no message at all -- and under python -O, with the assert gone, with an AttributeError from
+        # SimComboArg.__init__ summing the size of a None.
+        arch = archinfo.arch_from_id("aarch64")
+        cc = SimCCAArch64(arch)
+        with self.assertRaises(AngrTypeError) as caught:
+            cc.return_val(SimTypeNum(128).with_arch(arch))
+        message = str(caught.exception)
+        assert "SimCCAArch64" in message
+        assert "OVERFLOW_RETURN_VAL" in message
 
 
 if __name__ == "__main__":
