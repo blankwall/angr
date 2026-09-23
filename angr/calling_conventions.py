@@ -1404,6 +1404,8 @@ class SimCCCdecl(SimCC):
     ARCH = archinfo.ArchX86
 
     def next_arg(self, session, arg_type):
+        if isinstance(arg_type, TypeRef):
+            arg_type = arg_type.type
         if isinstance(arg_type, (SimTypeArray, SimTypeFixedSizeArray)):  # hack
             arg_type = SimTypePointer(arg_type.elem_type).with_arch(self.arch)
         locs_size = 0
@@ -2446,6 +2448,8 @@ class SimCCRISCV64(SimCC):
 
     # https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-cc.adoc
     def next_arg(self, session, arg_type):
+        if isinstance(arg_type, TypeRef):
+            arg_type = arg_type.type
         # TODO: Implement variable parameter passing
         # EXAMPLE:
         # struct F1 {float a, int b};

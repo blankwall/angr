@@ -15,6 +15,7 @@ from angr.calling_conventions import (
     SimCCMicrosoftAMD64,
     SimCCMicrosoftCdecl,
     SimCCMicrosoftFastcall,
+    SimCCMicrosoftThiscall,
     SimCCN32,
     SimCCN32LinuxSyscall,
     SimCCN64,
@@ -289,6 +290,47 @@ class TestCallingConvention(TestCase):
             proto = SimTypeFunction([SimTypeInt()], TypeRef("class Base::Type", inner)).with_arch(arch)
             assert not cc.return_in_implicit_outparam(proto.returnty)
             assert len(cc.arg_locs(proto)) == 1
+
+    def _arg_footprints(self, cc, arg_types):
+        proto = SimTypeFunction(arg_types, SimTypeInt()).with_arch(cc.arch)
+        return [sorted(loc.get_footprint(), key=repr) for loc in cc.arg_locs(proto)]
+
+    def test_next_arg_lays_a_typeref_out_as_the_type_it_names(self):
+        # A TypeRef names another type rather than being one. SimCCCdecl.next_arg and
+        # SimCCRISCV64.next_arg size the location list from arg_type.size, which forwards through
+        # the alias, and then dispatch on the alias itself, which does not: the argument was sized
+        # as the type it names and described as something else. Where the named type has no size
+        # nothing was reserved at all and refine_locs_with_struct_type indexed an empty list.
+        named = [
+            # what ALL_TYPES["fpos_t"] is: an opaque C type, declared with no fields and so no size
+            ("fpos_t", lambda: SimStruct({}, name="fpos_t")),
+            ("int64_t", SimTypeLongLong),
+            ("point_t", lambda: SimStruct({"x": SimTypeInt(), "y": SimTypeInt()}, name="point")),
+            ("quad_t", lambda: SimTypeFixedSizeArray(SimTypeInt(), 4)),
+        ]
+        for cc in (
+            SimCCMicrosoftCdecl(archinfo.ArchX86()),
+            SimCCMicrosoftThiscall(archinfo.ArchX86()),
+            SimCCRISCV64(archinfo.ArchRISCV64()),
+        ):
+            for name, make in named:
+                direct = [SimTypePointer(SimTypeChar()), make(), SimTypeInt()]
+                aliased = [SimTypePointer(SimTypeChar()), TypeRef(name, make()), SimTypeInt()]
+                self.assertEqual(
+                    self._arg_footprints(cc, aliased),
+                    self._arg_footprints(cc, direct),
+                    f"{type(cc).__name__} {name}",
+                )
+
+        # and what two of those layouts are, so the comparison above cannot pass by being wrong
+        # on each side at once
+        cc = SimCCMicrosoftCdecl(archinfo.ArchX86())
+        assert self._arg_footprints(
+            cc, [SimTypePointer(SimTypeChar()), TypeRef("fpos_t", SimStruct({}, name="fpos_t")), SimTypeInt()]
+        ) == [[SimStackArg(0x4, 4)], [], [SimStackArg(0x8, 4)]]
+        assert self._arg_footprints(
+            cc, [SimTypePointer(SimTypeChar()), TypeRef("int64_t", SimTypeLongLong()), SimTypeInt()]
+        ) == [[SimStackArg(0x4, 4)], [SimStackArg(0x8, 4), SimStackArg(0xC, 4)], [SimStackArg(0x10, 4)]]
 
     def _mips_int_arg_locs(self, cc_cls, arch, arg_types):
         proto = SimTypeFunction(arg_types, SimTypeInt()).with_arch(arch)
